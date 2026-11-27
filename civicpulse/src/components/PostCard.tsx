@@ -36,7 +36,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post }) => {
   };
 
   return (
-    <Card as-article="true" className="group flex flex-col overflow-hidden transition-colors hover:border-civic-muted/40">
+    <Card className="group flex flex-col overflow-hidden transition-colors hover:border-civic-muted/40">
       <article className="flex flex-col">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-civic-border/60 p-4 pb-2.5 text-xs text-civic-muted">
           <div className="flex flex-wrap items-center gap-2">
