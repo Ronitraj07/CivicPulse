@@ -1,557 +1,300 @@
-import React, { useState } from 'react';
-import { useCivic } from '../context/CivicContext';
-import { 
-  Globe, 
-  ExternalLink, 
-  ThumbsUp, 
-  AlertTriangle, 
-  CheckCircle2, 
-  AlertOctagon, 
-  Plus, 
-  Search, 
-  X, 
-  ShieldCheck, 
-  TrendingUp
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ExternalLink, Search, X } from 'lucide-react';
+import { useCivic } from '../context/CivicContext';
+import { Button, cn } from '../components/ui';
+
+const ring = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-civic-accent';
+const field = `w-full rounded-md border border-civic-border bg-civic-surface px-3 py-2 text-sm text-civic-text placeholder:text-civic-muted/70 focus:border-civic-accent ${ring}`;
+
+type Filter = 'All' | 'Central' | 'State' | 'IssuesOnly';
+
+const STATUS_STYLE = {
+  Down: { text: 'text-civic-red', label: 'Down' },
+  Degraded: { text: 'text-civic-amber', label: 'Slow or degraded' },
+  Operational: { text: 'text-civic-green', label: 'Operational' },
+} as const;
+
+const FAILURES = [
+  { value: 'Server Down / Crash', label: 'Server down or crashing (HTTP 500, 502, 504)' },
+  { value: 'Payment Deducted & Failed', label: 'Payment deducted but no receipt' },
+  { value: 'OTP Not Coming', label: 'OTP never arrives or gateway times out' },
+  { value: 'Agent Nexus / Slot Blocking', label: 'Slots vanish in seconds (bots or agent blocking)' },
+  { value: 'Captcha Reload Loop', label: 'Captcha keeps reloading' },
+  { value: 'Digital Certificate Corrupt', label: 'Certificate or PDF download is corrupt' },
+];
 
 export const GovPortalsPage: React.FC = () => {
   const { portals, votePortalIssue, addPortalBug, addPost } = useCivic();
 
-  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'All' | 'Central' | 'State' | 'IssuesOnly'>('All');
-
-  // "Report New Website Bug" Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedPortalName, setSelectedPortalName] = useState(portals[0]?.portalName || '');
-  const [customPortalName, setCustomPortalName] = useState('');
-  const [portalJurisdiction, setPortalJurisdiction] = useState<'Central' | 'State'>('Central');
-  const [bugCategory, setBugCategory] = useState('Payment Deducted & Failed');
-  const [bugDescription, setBugDescription] = useState('');
+  const [filter, setFilter] = useState<Filter>('All');
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState(portals[0]?.portalName || '');
+  const [customName, setCustomName] = useState('');
+  const [tier, setTier] = useState<'Central' | 'State'>('Central');
+  const [failure, setFailure] = useState('Payment Deducted & Failed');
+  const [details, setDetails] = useState('');
   const [errorCode, setErrorCode] = useState('');
-  const [votedPortalIds, setVotedPortalIds] = useState<Set<string>>(new Set());
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [formError, setFormError] = useState('');
+  const [voted, setVoted] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
+  const firstField = useRef<HTMLSelectElement>(null);
 
-  // Status metrics
-  const totalPortals = portals.length;
-  const downCount = portals.filter(p => p.status === 'Down').length;
-  const degradedCount = portals.filter(p => p.status === 'Degraded').length;
-  const operationalCount = portals.filter(p => p.status === 'Operational').length;
-  const totalBugsReported = portals.reduce((sum, p) => sum + p.bugReportsCount, 0);
+  const down = portals.filter((p) => p.status === 'Down').length;
+  const degraded = portals.filter((p) => p.status === 'Degraded').length;
+  const ok = portals.filter((p) => p.status === 'Operational').length;
+  const confirmations = portals.reduce((sum, p) => sum + p.bugReportsCount, 0);
 
-  // Filtered Portals List
-  const filteredPortals = portals.filter((p) => {
-    // 1. Search filter
+  const visible = portals.filter((p) => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchName = p.portalName.toLowerCase().includes(q);
-      const matchUrl = p.url.toLowerCase().includes(q);
-      const matchIssues = p.commonIssues.some(i => i.toLowerCase().includes(q));
-      if (!matchName && !matchUrl && !matchIssues) return false;
+      const hit = p.portalName.toLowerCase().includes(q) || p.url.toLowerCase().includes(q) || p.commonIssues.some((i) => i.toLowerCase().includes(q));
+      if (!hit) return false;
     }
-
-    // 2. Type filter
-    if (filterType === 'Central') return p.category === 'Central';
-    if (filterType === 'State') return p.category === 'State';
-    if (filterType === 'IssuesOnly') return p.status === 'Down' || p.status === 'Degraded';
-
+    if (filter === 'Central') return p.category === 'Central';
+    if (filter === 'State') return p.category === 'State';
+    if (filter === 'IssuesOnly') return p.status === 'Down' || p.status === 'Degraded';
     return true;
   });
 
-  const handleVote = (portalId: string) => {
-    votePortalIssue(portalId);
-    setVotedPortalIds(prev => new Set(prev).add(portalId));
-    setToastMessage('+1 Issue recorded in community outage log!');
-    setTimeout(() => setToastMessage(null), 2500);
+  useEffect(() => {
+    if (!open) return;
+    firstField.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const notify = (msg: string, ms = 3000) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), ms);
   };
 
-  const handleBugSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleVote = (id: string) => {
+    votePortalIssue(id);
+    setVoted((prev) => new Set(prev).add(id));
+    notify('Recorded. Thanks for confirming.');
+  };
 
-    const portalTitle = selectedPortalName === 'OTHER' ? customPortalName : selectedPortalName;
-    if (!portalTitle.trim() || !bugDescription.trim()) {
-      alert('Please provide portal name and description of the bug.');
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = target === 'OTHER' ? customName : target;
+    if (!name.trim() || !details.trim()) {
+      setFormError('Add the portal name and describe what went wrong.');
       return;
     }
-
-    const fullIssueTag = errorCode ? `${bugCategory} (${errorCode})` : bugCategory;
-
-    // 1. Update GovTech Portals Board
-    addPortalBug(portalTitle, portalJurisdiction, fullIssueTag);
-
-    // 2. Create linked post in main social feed
+    setFormError('');
+    const issueTag = errorCode ? `${failure} (${errorCode})` : failure;
+    addPortalBug(name, tier, issueTag);
     addPost({
       anonymousHash: `Anon#${Math.floor(1000 + Math.random() * 9000).toString(16).toUpperCase()}`,
-      state: portalJurisdiction === 'Central' ? 'Central Portal' : 'State Portal',
+      state: tier === 'Central' ? 'Central Portal' : 'State Portal',
       city: 'National / Online',
       category: 'Gov Website Problem',
-      subCategory: bugCategory,
-      title: `${portalTitle}: ${bugCategory} - Citizens Unable To Proceed`,
-      description: `${bugDescription}${errorCode ? `\n\nHTTP Error / Code: ${errorCode}` : ''}\n\nReported via GovTech Problem & Outage Tracker.`,
-      mediaUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-      exifStripped: true,
+      subCategory: failure,
+      title: `${name}: ${failure} - Citizens Unable To Proceed`,
+      description: `${details}${errorCode ? `\n\nHTTP Error / Code: ${errorCode}` : ''}\n\nReported via the portal outage tracker.`,
+      exifStripped: false,
       status: 'Reported',
       pollData: {
-        question: `Are you also experiencing ${bugCategory} on ${portalTitle}?`,
+        question: `Are you also seeing "${failure}" on ${name}?`,
         totalVotes: 1,
         options: [
-          { id: 'opt-1', label: 'Yes, happening right now', votes: 1 },
-          { id: 'opt-2', label: 'Extremely slow / gateway lag', votes: 0 },
-          { id: 'opt-3', label: 'Working normally for me', votes: 0 }
-        ]
-      }
+          { id: 'opt-1', label: 'Yes, it is happening right now', votes: 1 },
+          { id: 'opt-2', label: 'It is extremely slow', votes: 0 },
+          { id: 'opt-3', label: 'Working normally for me', votes: 0 },
+        ],
+      },
     });
-
-    setIsModalOpen(false);
-    setCustomPortalName('');
-    setBugDescription('');
+    setOpen(false);
+    setCustomName('');
+    setDetails('');
     setErrorCode('');
-    setToastMessage(`Bug logged! Linked incident posted to Main Feed.`);
-    setTimeout(() => setToastMessage(null), 3500);
+    notify('Logged. A linked report now appears in the main feed.', 3500);
   };
 
+  const filterTabs: { key: Filter; label: string }[] = [
+    { key: 'All', label: `All (${portals.length})` },
+    { key: 'Central', label: 'Central' },
+    { key: 'State', label: 'State' },
+    { key: 'IssuesOnly', label: `Problems only (${down + degraded})` },
+  ];
+
   return (
-    <div className="space-y-6">
-      
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#12141D] border border-emerald-500/50 text-emerald-400 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-2 animate-bounce">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-          <span className="text-xs font-bold">{toastMessage}</span>
+    <div>
+      {toast && (
+        <div role="status" className="fixed bottom-20 right-4 z-50 rounded-md border border-civic-border bg-civic-surface px-4 py-3 text-sm text-civic-text md:bottom-6">
+          {toast}
         </div>
       )}
 
-      {/* 1. Page Header & Live Health Board */}
-      <div className="bg-[#12141D] rounded-2xl border border-[#1F2430] p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#3B82F6] to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
-              <Globe className="w-6 h-6 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-white">GovTech Problem & Outage Tracker</h1>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
-                  c/GovTechIssues
-                </span>
-              </div>
-              <p className="text-xs text-[#9CA3AF] mt-1 max-w-xl leading-relaxed">
-                Live crowdsourced status board monitoring downtime, OTP bottlenecks, payment crashes, and agent-nexus slot hoarding across Indian public portals.
-              </p>
-            </div>
-          </div>
-
-          {/* "+ Report Portal Bug" CTA */}
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#3B82F6] to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Report Website Bug</span>
-          </button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-civic-text">Government portals</h1>
+          <p className="mt-2 text-sm leading-relaxed text-civic-muted">
+            A citizen-kept log of outages, failed payments, missing OTPs and blocked appointment slots on Indian public portals.
+          </p>
         </div>
-
-        {/* Health KPI Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-[#1F2430]">
-          <div className="bg-[#181C28] p-3 rounded-xl border border-[#1F2430]">
-            <span className="text-[10px] uppercase font-bold text-[#9CA3AF] block mb-0.5">Operational</span>
-            <div className="text-lg font-black text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{operationalCount} Portals</span>
-            </div>
-            <span className="text-[10px] text-[#9CA3AF]">Normal Latency</span>
-          </div>
-
-          <div className="bg-[#181C28] p-3 rounded-xl border border-amber-500/30">
-            <span className="text-[10px] uppercase font-bold text-amber-400/90 block mb-0.5">Slow / Degraded</span>
-            <div className="text-lg font-black text-amber-400 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" />
-              <span>{degradedCount} Portals</span>
-            </div>
-            <span className="text-[10px] text-amber-300/60">High Failure Rate</span>
-          </div>
-
-          <div className="bg-[#181C28] p-3 rounded-xl border border-red-500/30">
-            <span className="text-[10px] uppercase font-bold text-red-400 block mb-0.5">Server Outage / Down</span>
-            <div className="text-lg font-black text-red-400 flex items-center gap-1.5">
-              <AlertOctagon className="w-4 h-4 animate-pulse" />
-              <span>{downCount} Portals</span>
-            </div>
-            <span className="text-[10px] text-red-300/60">Severe Downtime</span>
-          </div>
-
-          <div className="bg-[#181C28] p-3 rounded-xl border border-[#1F2430]">
-            <span className="text-[10px] uppercase font-bold text-[#9CA3AF] block mb-0.5">Total Reports Logged</span>
-            <div className="text-lg font-black text-white flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-[#FF4500]" />
-              <span>{totalBugsReported.toLocaleString('en-IN')}</span>
-            </div>
-            <span className="text-[10px] text-emerald-400">Crowdsourced</span>
-          </div>
-        </div>
-
+        <Button onClick={() => setOpen(true)}>Report a portal problem</Button>
       </div>
 
-      {/* 2. Filter Tabs & Search Bar */}
-      <div className="bg-[#12141D] rounded-2xl border border-[#1F2430] p-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
-        
-        {/* Jurisdiction Filter Tabs */}
-        <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          <button
-            onClick={() => setFilterType('All')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              filterType === 'All'
-                ? 'bg-[#3B82F6] text-white shadow-md shadow-blue-500/25'
-                : 'text-gray-400 hover:text-white hover:bg-[#181C28]'
-            }`}
-          >
-            All Portals ({totalPortals})
-          </button>
+      <dl className="mt-6 grid grid-cols-2 divide-civic-border border-y border-civic-border sm:grid-cols-4 sm:divide-x">
+        {[
+          { label: 'Operational', value: ok, tone: 'text-civic-green' },
+          { label: 'Slow or degraded', value: degraded, tone: 'text-civic-amber' },
+          { label: 'Down', value: down, tone: 'text-civic-red' },
+          { label: 'Citizen confirmations', value: confirmations.toLocaleString('en-IN'), tone: 'text-civic-text' },
+        ].map((s) => (
+          <div key={s.label} className="px-0 py-3 sm:px-4 sm:first:pl-0">
+            <dt className="text-xs text-civic-muted">{s.label}</dt>
+            <dd className={cn('mt-0.5 font-mono text-xl', s.tone)}>{s.value}</dd>
+          </div>
+        ))}
+      </dl>
 
-          <button
-            onClick={() => setFilterType('Central')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              filterType === 'Central'
-                ? 'bg-[#3B82F6] text-white shadow-md shadow-blue-500/25'
-                : 'text-gray-400 hover:text-white hover:bg-[#181C28]'
-            }`}
-          >
-            Central (Gov of India)
-          </button>
-
-          <button
-            onClick={() => setFilterType('State')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              filterType === 'State'
-                ? 'bg-[#3B82F6] text-white shadow-md shadow-blue-500/25'
-                : 'text-gray-400 hover:text-white hover:bg-[#181C28]'
-            }`}
-          >
-            State Portals
-          </button>
-
-          <button
-            onClick={() => setFilterType('IssuesOnly')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              filterType === 'IssuesOnly'
-                ? 'bg-red-500 text-white shadow-md shadow-red-500/25'
-                : 'text-red-400 hover:text-white hover:bg-red-950/40'
-            }`}
-          >
-            Flapping / Broken Only ({downCount + degradedCount})
-          </button>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-civic-border">
+        <div className="flex gap-6 overflow-x-auto" role="group" aria-label="Filter portals">
+          {filterTabs.map((t) => (
+            <button key={t.key} type="button" aria-pressed={filter === t.key} onClick={() => setFilter(t.key)}
+              className={cn('-mb-px whitespace-nowrap border-b-2 pb-3 text-sm font-medium transition-colors', ring, filter === t.key ? 'border-civic-accent text-civic-text' : 'border-transparent text-civic-muted hover:text-civic-text')}>
+              {t.label}
+            </button>
+          ))}
         </div>
-
-        {/* Portal Search */}
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search portal, OTP, Parivahan..."
-            className="w-full pl-9 pr-8 py-1.5 bg-[#181C28] border border-[#1F2430] rounded-xl text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#3B82F6] transition-colors"
-          />
+        <div className="relative mb-2 w-full sm:w-60" role="search">
+          <label htmlFor="portal-search" className="sr-only">Search portals</label>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-civic-muted" aria-hidden="true" />
+          <input id="portal-search" type="search" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search portal or problem" className={cn(field, 'py-1.5 pl-9 pr-8 text-xs [&::-webkit-search-cancel-button]:hidden')} />
           {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search" className={cn('absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-civic-muted hover:text-civic-text', ring)}>
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-
       </div>
 
-      {/* 3. Portals Cards Grid */}
-      <div className="grid gap-4">
-        {filteredPortals.length === 0 ? (
-          <div className="bg-[#12141D] rounded-2xl border border-[#1F2430] p-12 text-center space-y-3">
-            <Globe className="w-10 h-10 text-gray-500 mx-auto" />
-            <h3 className="text-base font-bold text-white">No government portals match your query</h3>
-            <p className="text-xs text-[#9CA3AF] max-w-sm mx-auto">
-              Try searching for a different keyword or report this new portal to start tracking it.
-            </p>
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setFilterType('All');
-              }}
-              className="px-4 py-2 bg-[#181C28] text-gray-200 text-xs font-semibold rounded-xl border border-[#1F2430]"
-            >
-              Reset Filters
-            </button>
+      <div className="mt-2">
+        {visible.length === 0 ? (
+          <div className="py-12 text-center">
+            <h2 className="font-display text-xl font-semibold text-civic-text">No portals match</h2>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-civic-muted">Try a different keyword, or report this portal so it gets tracked.</p>
+            <Button variant="secondary" className="mt-4" onClick={() => { setSearchQuery(''); setFilter('All'); }}>Reset filters</Button>
           </div>
         ) : (
-          filteredPortals.map((portal) => {
-            const hasVoted = votedPortalIds.has(portal.id);
-            const isDown = portal.status === 'Down';
-            const isDegraded = portal.status === 'Degraded';
-
+          visible.map((portal) => {
+            const st = STATUS_STYLE[portal.status];
+            const hasVoted = voted.has(portal.id);
             return (
-              <div
-                key={portal.id}
-                className="bg-[#12141D] rounded-2xl border border-[#1F2430] hover:border-[#2D3748] transition-all p-5 space-y-3.5 shadow-lg group"
-              >
-                {/* Top Row: Title, Category, URL, and Live Status Badge */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-base font-bold text-white group-hover:text-[#3B82F6] transition-colors">
-                        {portal.portalName}
-                      </h2>
-                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-[#181C28] text-gray-300 border border-[#1F2430]">
-                        {portal.category} Portal
-                      </span>
-                    </div>
-
-                    <a
-                      href={portal.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 mt-1 font-mono"
-                    >
-                      <span>{portal.url}</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-
-                  {/* Status Badge */}
-                  <div>
-                    {isDown ? (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-950/70 text-red-400 border border-red-500/40 animate-pulse">
-                        <AlertOctagon className="w-3.5 h-3.5" />
-                        Server Down / Outage
-                      </span>
-                    ) : isDegraded ? (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-950/70 text-amber-400 border border-amber-500/40">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        Slow / Degraded Gateway
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Operational
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Common Reported Bug Tags */}
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] block mb-1.5">
-                    Top Reported Citizen Glitches:
+              <article key={portal.id} className="border-b border-civic-border py-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <h2 className="font-display text-xl font-semibold text-civic-text">
+                    {portal.portalName}
+                    <span className="ml-2 font-sans text-xs font-normal text-civic-muted">{portal.category}</span>
+                  </h2>
+                  <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', st.text)}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+                    {st.label}
                   </span>
-                  <div className="flex flex-wrap gap-1.5">
+                </div>
+
+                <a href={portal.url} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex items-center gap-1 font-mono text-xs text-civic-blue hover:underline">
+                  {portal.url} <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+
+                <div className="mt-3">
+                  <p className="text-xs text-civic-muted">Problems people report</p>
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
                     {portal.commonIssues.map((issue) => (
-                      <span
-                        key={issue}
-                        className="text-xs px-2.5 py-1 rounded-lg bg-[#181C28] text-gray-300 border border-[#1F2430] flex items-center gap-1"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6]" />
-                        {issue}
-                      </span>
+                      <li key={issue} className="rounded-sm border border-civic-border px-2 py-0.5 text-xs text-civic-text/90">{issue}</li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
 
-                {/* Footer Controls: "+1 I'm Facing an Issue" and Linked Feeds */}
-                <div className="pt-3 border-t border-[#1F2430] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#9CA3AF]">
-                  <div className="flex items-center gap-3">
-                    <span>Telemetry Checked: <strong className="text-gray-300">{portal.lastChecked}</strong></span>
-                    <span>•</span>
-                    <span className="text-gray-300 font-medium">
-                      <strong className="text-[#FF4500]">{portal.bugReportsCount}</strong> citizen confirmations
-                    </span>
-                  </div>
-
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-civic-muted">
+                    Checked {portal.lastChecked} · <span className="font-mono text-civic-text">{portal.bugReportsCount}</span> confirmations
+                  </p>
                   <div className="flex items-center gap-2">
-                    <Link
-                      to="/"
-                      className="px-3 py-1.5 rounded-xl bg-[#181C28] hover:bg-[#1F2430] text-gray-300 text-xs font-semibold border border-[#1F2430] transition-colors"
-                    >
-                      View Linked Feed
-                    </Link>
-
-                    {/* "+1 I'm Facing an Issue" Quick Vote Button */}
-                    <button
-                      onClick={() => handleVote(portal.id)}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                        hasVoted
-                          ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/40 shadow-sm'
-                          : 'bg-[#181C28] hover:bg-[#1F2430] text-white border-[#1F2430] hover:border-gray-500'
-                      }`}
-                    >
-                      <ThumbsUp className={`w-3.5 h-3.5 ${hasVoted ? 'text-emerald-400' : 'text-[#FF4500]'}`} />
-                      <span>{hasVoted ? 'Recorded (+1)' : "I'm Facing an Issue (+1)"}</span>
-                    </button>
+                    <Link to="/" className={cn('inline-flex min-h-[32px] items-center rounded-md px-3 text-xs font-medium text-civic-muted hover:bg-civic-raised hover:text-civic-text', ring)}>Related reports</Link>
+                    <Button size="sm" variant="secondary" aria-pressed={hasVoted} disabled={hasVoted} onClick={() => handleVote(portal.id)}>
+                      {hasVoted ? 'Recorded' : 'I am affected too'}
+                    </Button>
                   </div>
                 </div>
-
-              </div>
+              </article>
             );
           })
         )}
       </div>
 
-      {/* 4. "Report New Website Bug" Modal Studio */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#12141D] rounded-3xl border border-[#1F2430] max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex items-center justify-between pb-3 border-b border-[#1F2430]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
-                  <Globe className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-bold text-white">Report Government Portal Outage / Bug</h3>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-[#181C28]"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="bug-title" className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-lg border border-civic-border bg-civic-surface p-6 sm:rounded-lg">
+            <div className="flex items-start justify-between gap-4">
+              <h2 id="bug-title" className="font-display text-2xl font-semibold text-civic-text">Report a portal problem</h2>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className={cn('rounded p-1 text-civic-muted hover:text-civic-text', ring)}><X className="h-5 w-5" /></button>
             </div>
 
-            <form onSubmit={handleBugSubmit} className="space-y-3.5 text-xs">
-              
-              {/* Jurisdiction */}
-              <div>
-                <label className="block text-gray-300 font-semibold mb-1">Portal Type / Tier</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPortalJurisdiction('Central')}
-                    className={`flex-1 py-2 rounded-xl font-bold border transition-all ${
-                      portalJurisdiction === 'Central'
-                        ? 'bg-blue-600 text-white border-blue-500'
-                        : 'bg-[#181C28] text-gray-400 border-[#1F2430]'
-                    }`}
-                  >
-                    Central Govt Portal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPortalJurisdiction('State')}
-                    className={`flex-1 py-2 rounded-xl font-bold border transition-all ${
-                      portalJurisdiction === 'State'
-                        ? 'bg-blue-600 text-white border-blue-500'
-                        : 'bg-[#181C28] text-gray-400 border-[#1F2430]'
-                    }`}
-                  >
-                    State / Municipal Portal
-                  </button>
-                </div>
-              </div>
-
-              {/* Target Portal Selection */}
-              <div>
-                <label className="block text-gray-300 font-semibold mb-1">Select Target Portal *</label>
-                <select
-                  value={selectedPortalName}
-                  onChange={(e) => setSelectedPortalName(e.target.value)}
-                  className="w-full bg-[#181C28] border border-[#1F2430] rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500 font-medium"
-                >
-                  {portals.map((p) => (
-                    <option key={p.id} value={p.portalName}>
-                      {p.portalName} ({p.category})
-                    </option>
+            <form onSubmit={handleSubmit} className="mt-5 space-y-4" noValidate>
+              <fieldset>
+                <legend className="mb-1.5 text-sm font-medium text-civic-text">Who runs the portal?</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['Central', 'State'] as const).map((t) => (
+                    <label key={t} className={cn('flex min-h-[40px] cursor-pointer items-center justify-center rounded-md border text-sm', tier === t ? 'border-civic-accent text-civic-text' : 'border-civic-border text-civic-muted hover:text-civic-text')}>
+                      <input type="radio" name="tier" value={t} checked={tier === t} onChange={() => setTier(t)} className="sr-only" />
+                      {t === 'Central' ? 'Central government' : 'State or municipal'}
+                    </label>
                   ))}
-                  <option value="OTHER">+ Other Government Website (Specify)</option>
+                </div>
+              </fieldset>
+
+              <div>
+                <label htmlFor="bug-portal" className="mb-1.5 block text-sm font-medium text-civic-text">Portal</label>
+                <select id="bug-portal" ref={firstField} value={target} onChange={(e) => setTarget(e.target.value)} className={field}>
+                  {portals.map((p) => (<option key={p.id} value={p.portalName}>{p.portalName} ({p.category})</option>))}
+                  <option value="OTHER">Another website (type it below)</option>
                 </select>
               </div>
 
-              {/* If "OTHER", custom portal input */}
-              {selectedPortalName === 'OTHER' && (
+              {target === 'OTHER' && (
                 <div>
-                  <label className="block text-gray-300 font-semibold mb-1">Custom Portal Name & URL *</label>
-                  <input
-                    type="text"
-                    value={customPortalName}
-                    onChange={(e) => setCustomPortalName(e.target.value)}
-                    placeholder="e.g. Mahavitaran Electricity Billing (mahadiscom.in)"
-                    required
-                    className="w-full bg-[#181C28] border border-[#1F2430] rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                  />
+                  <label htmlFor="bug-custom" className="mb-1.5 block text-sm font-medium text-civic-text">Portal name and address</label>
+                  <input id="bug-custom" type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="For example: Mahavitaran billing (mahadiscom.in)" className={field} />
                 </div>
               )}
 
-              {/* Bug Category */}
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Observed Failure Category *</label>
-                <select
-                  value={bugCategory}
-                  onChange={(e) => setBugCategory(e.target.value)}
-                  className="w-full bg-[#181C28] border border-[#1F2430] rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="Server Down / Crash">Server Down / Crash (HTTP 500, 502, 504)</option>
-                  <option value="Payment Deducted & Failed">Payment Deducted & Receipt Failed</option>
-                  <option value="OTP Not Coming">OTP SMS Never Arriving / Gateway Timeout</option>
-                  <option value="Agent Nexus / Slot Blocking">Agent Nexus / Slot Vanishing in Seconds via Script Bots</option>
-                  <option value="Captcha Reload Loop">Broken Captcha / Infinite Reload Loop</option>
-                  <option value="Digital Certificate Corrupt">Digital Signature / PDF Download Corrupt</option>
+                <label htmlFor="bug-failure" className="mb-1.5 block text-sm font-medium text-civic-text">What went wrong</label>
+                <select id="bug-failure" value={failure} onChange={(e) => setFailure(e.target.value)} className={field}>
+                  {FAILURES.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
                 </select>
               </div>
 
-              {/* Error code / Reference */}
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Error Code / URL Endpoint (Optional)</label>
-                <input
-                  type="text"
-                  value={errorCode}
-                  onChange={(e) => setErrorCode(e.target.value)}
-                  placeholder="e.g. ERR_CONNECTION_TIMED_OUT or HTTP 500 at /payment/gateway"
-                  className="w-full bg-[#181C28] border border-[#1F2430] rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500 font-mono"
-                />
+                <label htmlFor="bug-code" className="mb-1.5 block text-sm font-medium text-civic-text">Error code or page <span className="font-normal text-civic-muted">(optional)</span></label>
+                <input id="bug-code" type="text" value={errorCode} onChange={(e) => setErrorCode(e.target.value)} placeholder="ERR_CONNECTION_TIMED_OUT, or HTTP 500 at /payment" className={cn(field, 'font-mono')} />
               </div>
 
-              {/* Bug Details */}
               <div>
-                <label className="block text-gray-300 font-semibold mb-1">Incident Explanation *</label>
-                <textarea
-                  rows={3}
-                  value={bugDescription}
-                  onChange={(e) => setBugDescription(e.target.value)}
-                  required
-                  placeholder="Describe your browser, time of attempt, bank reference if money deducted, or broker nexus observed..."
-                  className="w-full bg-[#181C28] border border-[#1F2430] rounded-xl p-3 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                />
+                <label htmlFor="bug-details" className="mb-1.5 block text-sm font-medium text-civic-text">What happened</label>
+                <textarea id="bug-details" rows={4} value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Your browser, the time you tried, and the bank reference if money was deducted." className={field} />
               </div>
 
-              <div className="p-3 bg-blue-950/20 border border-blue-500/30 rounded-xl text-[11px] text-blue-200 flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                <span>
-                  Logging this will simultaneously update the GovTech outage telemetry and create an active whistleblower poll on the social feed.
-                </span>
-              </div>
+              <p className="border-l-2 border-civic-blue pl-3 text-xs leading-relaxed text-civic-muted">
+                This updates the outage log and also posts a linked report with a poll in the main feed.
+              </p>
 
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-[#181C28] text-gray-300 font-semibold hover:bg-[#1F2430] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-500/25 transition-all"
-                >
-                  Publish Outage Bug
-                </button>
-              </div>
+              {formError && <p role="alert" className="text-sm text-civic-red">{formError}</p>}
 
+              <div className="flex justify-end gap-2 pt-1">
+                <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+                <Button type="submit">Publish report</Button>
+              </div>
             </form>
-
           </div>
         </div>
       )}
-
     </div>
   );
 };
