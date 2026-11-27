@@ -5,10 +5,10 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-civic-accent text-white hover:bg-orange-600',
-  secondary: 'bg-civic-raised text-civic-text border border-civic-border hover:bg-civic-hover',
-  ghost: 'text-civic-muted hover:bg-civic-hover hover:text-civic-text',
-  danger: 'bg-civic-red text-white hover:bg-red-600',
+  primary: 'bg-civic-accent text-civic-ink hover:bg-[#e5b050]',
+  secondary: 'border border-civic-border bg-transparent text-civic-text hover:bg-civic-raised',
+  ghost: 'text-civic-muted hover:bg-civic-raised hover:text-civic-text',
+  danger: 'bg-civic-red text-civic-ink hover:bg-[#e2705d]',
 };
 
 const sizes: Record<Size, string> = {
@@ -26,7 +26,7 @@ export const Button: React.FC<ButtonProps> = ({ variant = 'primary', size = 'md'
   <button
     type={type}
     className={cn(
-      'inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors',
+      'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-civic-accent focus-visible:ring-offset-2 focus-visible:ring-offset-civic-dark',
       'disabled:cursor-not-allowed disabled:opacity-50',
       variants[variant],

@@ -1,55 +1,30 @@
 import React from 'react';
-import { CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { Post } from '../../types';
-import { Badge } from '../ui';
+
+const Label: React.FC<{ tone: string; children: React.ReactNode }> = ({ tone, children }) => (
+  <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${tone}`}>
+    <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+    {children}
+  </span>
+);
 
 export const StatusBadge: React.FC<{ post: Post }> = ({ post }) => {
   const pct = post.verification?.approvalPercentage;
 
   if (post.status === 'Resolved') {
-    return (
-      <Badge tone="green" className="font-semibold">
-        <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-        {post.verification ? `Resolved (${pct}% verified)` : 'Resolved & verified'}
-      </Badge>
-    );
+    return <Label tone="text-civic-green">{post.verification ? `Resolved · ${pct}% verified` : 'Resolved'}</Label>;
   }
   if (post.status === 'Resolution Disputed') {
-    return (
-      <Badge tone="red" className="font-bold">
-        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-        Resolution disputed ({pct || 20}% &lt; 60%)
-      </Badge>
-    );
+    return <Label tone="text-civic-red">Resolution disputed · {pct || 20}% of 60% needed</Label>;
   }
   if (post.status === 'Pending Verification') {
-    return (
-      <Badge tone="blue" className="font-bold">
-        <Clock className="h-3 w-3" aria-hidden="true" />
-        Awaiting 60% verification
-      </Badge>
-    );
+    return <Label tone="text-civic-blue">Awaiting community check</Label>;
   }
   if (post.slaDays >= 7) {
-    return (
-      <Badge tone="red" className="font-bold">
-        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-        Shame clock: {post.slaDays}d unresolved
-      </Badge>
-    );
+    return <Label tone="text-civic-red">Overdue · {post.slaDays} days</Label>;
   }
   if (post.status === 'Under Review') {
-    return (
-      <Badge tone="blue" className="font-semibold">
-        <Clock className="h-3 w-3" aria-hidden="true" />
-        Under investigation ({post.slaDays}d)
-      </Badge>
-    );
+    return <Label tone="text-civic-blue">Under review · {post.slaDays}d</Label>;
   }
-  return (
-    <Badge tone="amber" className="font-semibold">
-      <Clock className="h-3 w-3" aria-hidden="true" />
-      Reported ({post.slaDays}d)
-    </Badge>
-  );
+  return <Label tone="text-civic-amber">Reported · {post.slaDays}d</Label>;
 };

@@ -18,7 +18,7 @@ export const Input: React.FC<InputProps> = ({ label, hint, error, id, className,
         aria-invalid={!!error}
         aria-describedby={describedBy}
         className={cn(
-          'w-full rounded-xl border bg-civic-surface px-3.5 py-2.5 text-sm text-civic-text placeholder:text-civic-muted/70',
+          'w-full rounded-md border bg-civic-surface px-3 py-2.5 text-sm text-civic-text placeholder:text-civic-muted/70',
           'focus:outline-none focus:ring-2 focus:ring-civic-accent',
           error ? 'border-civic-red' : 'border-civic-border',
           className,
