@@ -1,25 +1,30 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
       colors: {
         civic: {
-          dark: '#090A0F',
-          surface: '#12141D',
-          border: '#1F2430',
-          hover: '#181C28',
-          accent: '#FF4500', // Civic Orange
-          blue: '#3B82F6',   // Trust Blue
-          green: '#10B981',  // Resolved Green
-          red: '#EF4444',    // Critical Alert Red
+          dark: '#0B0D12',
+          surface: '#12151D',
+          raised: '#171B25',
+          border: '#232837',
+          hover: '#1C2130',
+          accent: '#F5622D',
+          blue: '#4C8DF6',
+          green: '#22C08A',
+          red: '#EF5350',
+          amber: '#F5A524',
           text: '#F3F4F6',
-          muted: '#9CA3AF'
-        }
-      }
+          muted: '#A1A8B8',
+        },
+      },
+      boxShadow: {
+        card: '0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.5)',
+      },
     },
   },
   plugins: [],
